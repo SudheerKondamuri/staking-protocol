@@ -9,13 +9,14 @@
     "lint": "eslint"
   },
   "dependencies": {
+    "@metamask/sdk": "^0.34.0",
     "@rainbow-me/rainbowkit": "^2.2.10",
     "@tanstack/react-query": "^5.90.20",
     "next": "16.1.6",
     "react": "19.2.3",
     "react-dom": "19.2.3",
     "viem": "^2.45.3",
-    "wagmi": "^3.4.3"
+    "wagmi": "^2.19.5"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
