@@ -1,7 +1,21 @@
-import { defineConfig } from "hardhat/config";
+import { HardhatUserConfig } from "hardhat/config";
+import "@nomicfoundation/hardhat-toolbox";
+import "hardhat-deploy"; // This is required for deploy scripts
 
-export default defineConfig({
-  solidity: {
-    version: "0.8.28",
+const config: HardhatUserConfig = {
+  solidity: "0.8.28",
+  namedAccounts: {
+    deployer: {
+      default: 0,
+    },
   },
-});
+  paths: {
+    deploy: 'deploy',
+    deployments: 'deployments',
+  },
+  external: {
+    deployments: {}
+  }
+};
+
+export default config;
