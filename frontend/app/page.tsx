@@ -1,135 +1,106 @@
 "use client";
 
-import { ConnectButton } from '@rainbow-me/rainbowkit';
-import { useAccount, useReadContract, useWriteContract } from 'wagmi';
-import { formatEther, parseEther } from 'viem';
-import { STAKING_CONTRACT_ADDRESS, STAKING_ABI, STAKING_TOKEN_ADDRESS } from '../constants';
-import { useState } from 'react';
-import { STAKING_TOKEN_ABI } from '@/constants/abi';
+import WalletButton from "@/components/WalletButton";
+import PoolList from "@/components/PoolList";
+import StakePanel from "@/components/StakePanel";
+import UserPositions from "@/components/UserPositions";
+import { useState, useCallback } from "react";
+import { motion } from "framer-motion";
 
 export default function Home() {
-  const { isConnected } = useAccount();
-  const [stakeAmount, setStakeAmount] = useState("");
+  const [account, setAccount] = useState<string | null>(null);
+  const [selectedPoolId, setSelectedPoolId] = useState<number>(0);
 
-  // Fetch Total Value Locked (Requirement 13)
-  const { data: tvl } = useReadContract({
-    address: STAKING_CONTRACT_ADDRESS,
-    abi: STAKING_ABI,
-    functionName: 'totalStaked',
-  });
-
-  // Fetch Pool 0 Info (Flexible)
-  const { data: pool0 } = useReadContract({
-    address: STAKING_CONTRACT_ADDRESS,
-    abi: STAKING_ABI,
-    functionName: 'pools',
-    args: [BigInt(0)],
-  });
-
-const { writeContractAsync } = useWriteContract();
-
-const handleStake = async () => {
-  if (!stakeAmount) return;
-  const amount = parseEther(stakeAmount);
-
-  try {
-    // Step 1: Send Approval
-    const approvalHash = await writeContractAsync({
-      address: STAKING_TOKEN_ADDRESS,
-      abi: STAKING_TOKEN_ABI,
-      functionName: 'approve',
-      args: [STAKING_CONTRACT_ADDRESS, amount],
-    });
-
-    // IMPORTANT: You must wait for the block to include this transaction
-    alert("Approval sent! Please wait for confirmation...");
-    
-    // Step 2: Send Stake (Trigger this manually or via a useEffect hook after confirmation)
-    await writeContractAsync({
-      address: STAKING_CONTRACT_ADDRESS,
-      abi: STAKING_ABI,
-      functionName: 'stake',
-      args: [BigInt(0), amount],
-    });
-
-  } catch (error) {
-    console.error("Interaction failed:", error);
-  }
-};
+  const handlePoolSelect = useCallback((poolId: number) => {
+    setSelectedPoolId(poolId);
+  }, []);
 
   return (
-    <div className="min-h-screen p-8 bg-zinc-50 dark:bg-zinc-950 text-zinc-900 dark:text-zinc-100">
-      <nav className="flex justify-between items-center mb-12 max-w-5xl mx-auto">
-        <h1 className="text-2xl font-bold">Staking Protocol</h1>
-        {/* Requirement 12: Wallet Connect Button */}
-        <div data-testid="connect-wallet-button">
-          <ConnectButton />
-        </div>
-      </nav>
+    <main className="min-h-screen pt-8 pb-20 px-4 sm:px-6 lg:px-8">
+      <div className="max-w-7xl mx-auto space-y-12">
+        {/* Navigation & Header */}
+        <motion.nav
+          initial={{ opacity: 0, y: -20 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="flex flex-col sm:flex-row justify-between items-center gap-6 glass px-6 py-4 rounded-2xl"
+        >
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-primary to-accent flex items-center justify-center shadow-lg shadow-primary/20">
+              <svg className="w-6 h-6 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+              </svg>
+            </div>
+            <h1 className="text-2xl font-bold tracking-tight">DeFi <span className="text-gradient">Staking</span></h1>
+          </div>
 
-      <main className="max-w-5xl mx-auto grid gap-8">
-        {/* Requirement 13: Dashboard Stats */}
-        <section className="p-8 bg-white dark:bg-zinc-900 rounded-2xl shadow-sm border border-zinc-200 dark:border-zinc-800">
-          <h2 className="text-zinc-500 text-sm font-semibold uppercase tracking-wider mb-2">Total Value Locked</h2>
-          <p className="text-5xl font-mono font-bold" data-testid="total-value-locked">
-            {tvl ? formatEther(tvl) : "0"} STK
+          <WalletButton onConnect={setAccount} />
+        </motion.nav>
+
+        {/* Hero Section */}
+        <motion.div
+          initial={{ opacity: 0, scale: 0.95 }}
+          animate={{ opacity: 1, scale: 1 }}
+          transition={{ delay: 0.1 }}
+          className="text-center max-w-3xl mx-auto space-y-4 py-8"
+        >
+          <h2 className="text-5xl font-extrabold tracking-tight sm:text-6xl text-transparent bg-clip-text bg-gradient-to-r from-white to-white/60">
+            Maximize Your Yield
+          </h2>
+          <p className="text-lg text-gray-400">
+            Stake your tokens securely and earn robust rewards. Choose between flexible pools for liquidity or locked pools for higher APY.
           </p>
-        </section>
+        </motion.div>
 
-        {isConnected ? (
-          <div className="grid md:grid-cols-2 gap-6">
-            {/* Flexible Pool Card */}
-            <div data-testid="pool-item-0" className="p-6 bg-white dark:bg-zinc-900 rounded-xl border border-zinc-200 dark:border-zinc-800">
-              <div className="flex justify-between items-start mb-4">
-                <h3 className="text-xl font-bold">Flexible Pool</h3>
-                <span className="bg-green-100 text-green-800 text-xs px-2 py-1 rounded-full font-bold">Active</span>
-              </div>
-              
-              <div className="space-y-2 mb-6">
-                <p className="flex justify-between">
-                  <span className="text-zinc-500">APY</span>
-                  <span className="font-mono font-bold" data-testid="pool-apy-0">
-                    {pool0 ? pool0[0].toString() : "0"}%
-                  </span>
-                </p>
-                <p className="flex justify-between">
-                  <span className="text-zinc-500">Lock Duration</span>
-                  <span className="font-mono" data-testid="pool-duration-0">0 Days</span>
-                </p>
-              </div>
+        {/* Main Content Grid */}
+        <div className="grid lg:grid-cols-12 gap-8 items-start">
 
-              {/* Requirement 14: Interaction */}
-              <div className="space-y-3">
-                <input 
-                  data-testid="stake-amount-input"
-                  type="number"
-                  value={stakeAmount}
-                  onChange={(e) => setStakeAmount(e.target.value)}
-                  placeholder="Amount to stake"
-                  className="w-full p-3 bg-zinc-100 dark:bg-zinc-800 rounded-lg outline-none focus:ring-2 focus:ring-blue-500 transition"
-                />
-                <button 
-                  data-testid="stake-button"
-                  onClick={handleStake}
-                  className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 rounded-lg transition-colors"
-                >
-                  Stake Tokens
-                </button>
-              </div>
+          {/* Left Column: Pools */}
+          <motion.div
+            initial={{ opacity: 0, x: -20 }}
+            animate={{ opacity: 1, x: 0 }}
+            transition={{ delay: 0.2 }}
+            className="lg:col-span-7 space-y-8"
+          >
+            <div className="flex items-end justify-between mb-2">
+              <h3 className="text-2xl font-semibold flex items-center gap-2">
+                <svg className="w-6 h-6 text-primary" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4m0 5c0 2.21-3.582 4-8 4s-8-1.79-8-4" />
+                </svg>
+                Staking Pools
+              </h3>
             </div>
+            <PoolList selectedPoolId={selectedPoolId} onSelect={handlePoolSelect} />
+          </motion.div>
 
-            {/* Locked Pool Placeholder (Pool 1) */}
-            <div className="p-6 bg-white dark:bg-zinc-900 rounded-xl border border-zinc-200 dark:border-zinc-800 opacity-75">
-               <h3 className="text-xl font-bold mb-4">Locked Pool (30 Days)</h3>
-               <p className="text-zinc-500">Connect to view details.</p>
-            </div>
-          </div>
-        ) : (
-          <div className="text-center py-20 bg-zinc-100 dark:bg-zinc-900 rounded-2xl border-2 border-dashed border-zinc-300 dark:border-zinc-800">
-            <p className="text-zinc-500">Please connect your wallet to view pools and stake tokens.</p>
-          </div>
+          {/* Right Column: Staking Panel */}
+          <motion.div
+            initial={{ opacity: 0, x: 20 }}
+            animate={{ opacity: 1, x: 0 }}
+            transition={{ delay: 0.3 }}
+            className="lg:col-span-5 sticky top-8"
+          >
+            <StakePanel poolId={selectedPoolId} account={account} />
+          </motion.div>
+        </div>
+
+        {/* Bottom Section: User Positions */}
+        {account && (
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.4 }}
+            className="pt-8 border-t border-white/10"
+          >
+            <h3 className="text-2xl font-semibold flex items-center gap-2 mb-6">
+              <svg className="w-6 h-6 text-accent" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+              My Active Positions
+            </h3>
+            <UserPositions account={account} />
+          </motion.div>
         )}
-      </main>
-    </div>
+      </div>
+    </main>
   );
 }
