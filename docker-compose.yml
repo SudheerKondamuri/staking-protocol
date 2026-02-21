@@ -1,0 +1,34 @@
+version: '3.8'
+
+services:
+  hardhat-node:
+    build:
+      context: .
+      dockerfile: Dockerfile.hardhat
+      network: host
+    network_mode: "host"
+    volumes:
+      - shared-data:/shared
+    healthcheck:
+      test: ["CMD", "test", "-f", "/shared/hardhat_ready"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      network: host
+    network_mode: "host"
+    volumes:
+      - /app/node_modules
+      - shared-data:/shared
+    environment:
+      - NEXT_PUBLIC_RPC_URL=http://localhost:8545
+    depends_on:
+      hardhat-node:
+        condition: service_healthy
+
+volumes:
+  shared-data:
