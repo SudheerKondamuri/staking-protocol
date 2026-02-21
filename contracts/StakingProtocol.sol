@@ -7,12 +7,16 @@ import "@openzeppelin/contracts/utils/Pausable.sol";
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 
 contract StakingProtocol is Ownable, Pausable, ReentrancyGuard {
-    IERC20 public stakingToken;
-    IERC20 public rewardToken;
+
+    IERC20 public immutable stakingToken;
+    IERC20 public immutable rewardToken;
+
+    uint256 public constant SECONDS_IN_YEAR = 31536000;
+    uint256 public constant EARLY_WITHDRAWAL_PENALTY = 10; // 10%
 
     struct Pool {
-        uint256 apyRate;      // e.g., 10 for 10%
-        uint256 lockDuration; // in seconds
+        uint256 apyRate;
+        uint256 lockDuration;
         bool isFlexible;
         uint256 totalStaked;
     }
@@ -26,37 +30,62 @@ contract StakingProtocol is Ownable, Pausable, ReentrancyGuard {
         bool isActive;
     }
 
-    Pool[] public pools;
+    Pool[] private pools;
     mapping(uint256 => Position) public positions;
+    mapping(address => uint256[]) private userPositions;
+
     uint256 public positionCounter;
+    uint256 public totalValueLocked;
 
-    uint256 public constant SECONDS_IN_YEAR = 31536000;
-    uint256 public constant EARLY_WITHDRAWAL_PENALTY = 10; // 10%
-
-    event PoolCreated(uint256 indexed poolId, uint256 apy, uint256 lockDuration, bool isFlexible);
+    event PoolCreated(uint256 indexed poolId, uint256 apyRate, uint256 lockDuration, bool isFlexible);
     event Staked(address indexed user, uint256 indexed poolId, uint256 amount, uint256 positionId);
-    event Withdrawn(address indexed user, uint256 amount, uint256 reward);
+    event RewardsClaimed(address indexed user, uint256 indexed positionId, uint256 reward);
+    event Unstaked(address indexed user, uint256 indexed positionId, uint256 principal, uint256 reward);
+    event EarlyWithdraw(address indexed user, uint256 indexed positionId, uint256 returnedAmount, uint256 penalty);
+    event EmergencyWithdraw(address indexed user, uint256 indexed positionId, uint256 principal);
 
     constructor(IERC20 _stakingToken, IERC20 _rewardToken) Ownable(msg.sender) {
-    require(address(_stakingToken) != address(0), "Invalid staking token");
-    require(address(_rewardToken) != address(0), "Invalid reward token");
-    stakingToken = _stakingToken;
-    rewardToken = _rewardToken;
-}
+        require(address(_stakingToken) != address(0), "Invalid staking token");
+        require(address(_rewardToken) != address(0), "Invalid reward token");
+        stakingToken = _stakingToken;
+        rewardToken = _rewardToken;
+    }
 
-    // --- Owner Functions ---
-    function createPool(uint256 _apyRate, uint256 _lockDuration, bool _isFlexible) external onlyOwner {
-        pools.push(Pool({
-            apyRate: _apyRate,
-            lockDuration: _isFlexible ? 0 : _lockDuration,
-            isFlexible: _isFlexible,
-            totalStaked: 0
-        }));
+    // ---------------- OWNER ----------------
+
+    function createPool(
+        uint256 _apyRate,
+        uint256 _lockDuration,
+        bool _isFlexible
+    ) external onlyOwner {
+
+        pools.push(
+            Pool({
+                apyRate: _apyRate,
+                lockDuration: _isFlexible ? 0 : _lockDuration,
+                isFlexible: _isFlexible,
+                totalStaked: 0
+            })
+        );
+
         emit PoolCreated(pools.length - 1, _apyRate, _lockDuration, _isFlexible);
     }
 
-    // --- User Functions ---
-    function stake(uint256 _poolId, uint256 _amount) external whenNotPaused nonReentrant {
+    function pause() external onlyOwner {
+        _pause();
+    }
+
+    function unpause() external onlyOwner {
+        _unpause();
+    }
+
+    // ---------------- USER ----------------
+
+    function stake(uint256 _poolId, uint256 _amount)
+        external
+        whenNotPaused
+        nonReentrant
+    {
         require(_poolId < pools.length, "Invalid pool");
         require(_amount > 0, "Amount must be > 0");
 
@@ -71,83 +100,168 @@ contract StakingProtocol is Ownable, Pausable, ReentrancyGuard {
             isActive: true
         });
 
+        userPositions[msg.sender].push(positionCounter);
+
         pools[_poolId].totalStaked += _amount;
+        totalValueLocked += _amount;
+
         emit Staked(msg.sender, _poolId, _amount, positionCounter);
         positionCounter++;
     }
 
-    function claimRewards(uint256 _positionId) public whenNotPaused nonReentrant {
+    function claimRewards(uint256 _positionId)
+        external
+        whenNotPaused
+        nonReentrant
+    {
         Position storage pos = positions[_positionId];
-        require(pos.isActive, "Position not active");
-        require(pos.holder == msg.sender, "Not your position");
 
-        uint256 rewards = calculateRewards(_positionId);
-        if (rewards > 0) {
-            pos.lastRewardClaimTime = block.timestamp;
-            rewardToken.transfer(msg.sender, rewards);
-        }
+        require(pos.isActive, "Inactive position");
+        require(pos.holder == msg.sender, "Not yours");
+
+        uint256 rewards = _calculateRewards(_positionId);
+        require(rewards > 0, "No rewards");
+
+        pos.lastRewardClaimTime = block.timestamp;
+
+        require(
+            rewardToken.balanceOf(address(this)) >= rewards,
+            "Insufficient reward balance"
+        );
+
+        rewardToken.transfer(msg.sender, rewards);
+
+        emit RewardsClaimed(msg.sender, _positionId, rewards);
     }
 
-    function unstake(uint256 _positionId) external whenNotPaused nonReentrant {
+    function unstake(uint256 _positionId)
+        external
+        whenNotPaused
+        nonReentrant
+    {
         Position storage pos = positions[_positionId];
-        Pool storage pool = pools[pos.poolId];
-        
-        require(pos.isActive, "Position not active");
-        require(pos.holder == msg.sender, "Not your position");
-        require(pool.isFlexible || block.timestamp >= pos.startTime + pool.lockDuration, "Lock period not over");
+        require(pos.isActive, "Inactive");
+        require(pos.holder == msg.sender, "Not yours");
 
-        uint256 rewards = calculateRewards(_positionId);
+        Pool storage pool = pools[pos.poolId];
+
+        require(
+            pool.isFlexible ||
+            block.timestamp >= pos.startTime + pool.lockDuration,
+            "Lock not expired"
+        );
+
+        uint256 rewards = _calculateRewards(_positionId);
         uint256 principal = pos.amount;
 
         pos.isActive = false;
-        pool.totalStaked -= principal;
+        pools[pos.poolId].totalStaked -= principal;
+        totalValueLocked -= principal;
 
         stakingToken.transfer(msg.sender, principal);
-        if (rewards > 0) rewardToken.transfer(msg.sender, rewards);
+
+        if (rewards > 0) {
+            rewardToken.transfer(msg.sender, rewards);
+        }
+
+        emit Unstaked(msg.sender, _positionId, principal, rewards);
     }
 
-    function withdrawEarly(uint256 _positionId) external whenNotPaused nonReentrant {
+    function withdrawEarly(uint256 _positionId)
+        external
+        whenNotPaused
+        nonReentrant
+    {
         Position storage pos = positions[_positionId];
-        Pool storage pool = pools[pos.poolId];
+        require(pos.isActive, "Inactive");
+        require(pos.holder == msg.sender, "Not yours");
 
-        require(pos.isActive, "Position not active");
-        require(!pool.isFlexible, "Use unstake for flexible");
-        require(block.timestamp < pos.startTime + pool.lockDuration, "Lock expired, use unstake");
+        Pool storage pool = pools[pos.poolId];
+        require(!pool.isFlexible, "Flexible pool");
+        require(
+            block.timestamp < pos.startTime + pool.lockDuration,
+            "Lock expired"
+        );
 
         uint256 penalty = (pos.amount * EARLY_WITHDRAWAL_PENALTY) / 100;
         uint256 amountToUser = pos.amount - penalty;
 
         pos.isActive = false;
-        pool.totalStaked -= pos.amount;
+
+        pools[pos.poolId].totalStaked -= pos.amount;
+        totalValueLocked -= pos.amount;
 
         stakingToken.transfer(msg.sender, amountToUser);
-        stakingToken.transfer(owner(), penalty); // Penalty to treasury
-        // Rewards are forfeited in early withdrawal
+        stakingToken.transfer(owner(), penalty);
+
+        emit EarlyWithdraw(msg.sender, _positionId, amountToUser, penalty);
     }
 
-    function emergencyWithdraw(uint256 _positionId) external nonReentrant {
+    function emergencyWithdraw(uint256 _positionId)
+        external
+        nonReentrant
+    {
         Position storage pos = positions[_positionId];
-        require(pos.isActive, "Position not active");
-        require(pos.holder == msg.sender, "Not your position");
+
+        require(pos.isActive, "Inactive");
+        require(pos.holder == msg.sender, "Not yours");
 
         uint256 principal = pos.amount;
+
         pos.isActive = false;
         pools[pos.poolId].totalStaked -= principal;
+        totalValueLocked -= principal;
 
         stakingToken.transfer(msg.sender, principal);
-        // Rewards are forfeited
+
+        emit EmergencyWithdraw(msg.sender, _positionId, principal);
     }
 
-    // --- View Functions ---
-    function calculateRewards(uint256 _positionId) public view returns (uint256) {
+    // ---------------- VIEW ----------------
+
+    function poolCount() external view returns (uint256) {
+        return pools.length;
+    }
+
+    function getPoolInfo(uint256 _poolId)
+        external
+        view
+        returns (Pool memory)
+    {
+        require(_poolId < pools.length, "Invalid pool");
+        return pools[_poolId];
+    }
+
+    function getUserPositions(address _user)
+        external
+        view
+        returns (uint256[] memory)
+    {
+        return userPositions[_user];
+    }
+
+    function getPendingRewards(uint256 _positionId)
+        external
+        view
+        returns (uint256)
+    {
+        Position memory pos = positions[_positionId];
+        if (!pos.isActive) return 0;
+        return _calculateRewards(_positionId);
+    }
+
+    function _calculateRewards(uint256 _positionId)
+        internal
+        view
+        returns (uint256)
+    {
         Position memory pos = positions[_positionId];
         Pool memory pool = pools[pos.poolId];
-        
-        uint256 timeElapsed = block.timestamp - pos.lastRewardClaimTime;
-        return (pos.amount * pool.apyRate * timeElapsed) / (SECONDS_IN_YEAR * 100);
-    }
 
-    function getPendingRewards(uint256 _positionId) public view returns (uint256) {
-        return calculateRewards(_positionId);
+        uint256 timeElapsed =
+            block.timestamp - pos.lastRewardClaimTime;
+
+        return (pos.amount * pool.apyRate * timeElapsed)
+            / (SECONDS_IN_YEAR * 100);
     }
 }
