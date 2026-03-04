@@ -1,11 +1,8 @@
 node_modules
 .next
-.env
 .env.local
 coverage
 .hardhat
-artifacts
-cache
-typechain-types
-deployments/
-**/.env
+frontend/node_modules
+frontend/.next
+
