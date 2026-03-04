@@ -1,12 +1,12 @@
 import { useQuery } from "@tanstack/react-query";
-import { getStakingContract } from "@/lib/contracts";
+import { getStakingContractReadOnly } from "@/lib/contracts";
 import { ethers } from "ethers";
 
 export const usePools = () => {
   return useQuery({
     queryKey: ["pools"],
     queryFn: async () => {
-      const contract = await getStakingContract();
+      const contract = getStakingContractReadOnly();
       const count = await contract.poolCount();
 
       const pools = [];
@@ -32,7 +32,7 @@ export const useTVL = () => {
   return useQuery({
     queryKey: ["tvl"],
     queryFn: async () => {
-      const contract = await getStakingContract();
+      const contract = getStakingContractReadOnly();
       const tvl = await contract.totalValueLocked();
       return ethers.formatUnits(tvl, 18);
     },
