@@ -6,6 +6,6 @@ import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 contract StakingToken is ERC20 {
     constructor(string memory name, string memory symbol) ERC20(name, symbol) {
         // Mint 1 Million tokens to the deployer (msg.sender)
-        _mint(msg.sender, 1000000 * 10**decimals()); 
+        _mint(msg.sender, 1000000 * 10**decimals());
     }
 }
