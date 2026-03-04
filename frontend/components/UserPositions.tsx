@@ -3,12 +3,14 @@
 import { useEffect, useState, useCallback } from "react";
 import { getStakingContract } from "@/lib/contracts";
 import { ethers } from "ethers";
+import { useQueryClient } from "@tanstack/react-query";
 import { motion, AnimatePresence } from "framer-motion";
 import { formatNumber } from "@/lib/utils";
 import { toast } from "sonner";
 import { Loader2, AlertTriangle, Download, HandCoins, Activity, Clock } from "lucide-react";
 
-export default function UserPositions({ account }: { account: string }) {
+export default function UserPositions({ account, refreshKey }: { account: string, refreshKey?: number }) {
+  const queryClient = useQueryClient();
   const [positions, setPositions] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [loadingAction, setLoadingAction] = useState<{ id: number, action: string } | null>(null);
@@ -50,7 +52,7 @@ export default function UserPositions({ account }: { account: string }) {
 
   useEffect(() => {
     if (account) loadPositions();
-  }, [account, loadPositions]);
+  }, [account, loadPositions, refreshKey]);
 
   const handleAction = async (id: number, actionName: string, actionFn: (contract: any) => Promise<any>, successMsg: string) => {
     setLoadingAction({ id, action: actionName });
@@ -62,6 +64,8 @@ export default function UserPositions({ account }: { account: string }) {
       await tx.wait();
       toast.success(successMsg, { id: toastId });
       loadPositions();
+      queryClient.invalidateQueries({ queryKey: ["pools"] });
+      queryClient.invalidateQueries({ queryKey: ["tvl"] });
     } catch (error: any) {
       console.error(error);
       toast.error(error?.message || `Failed to execute ${actionName}`, { id: toastId });

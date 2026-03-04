@@ -3,11 +3,13 @@
 import { useState } from "react";
 import { ethers } from "ethers";
 import { getStakingContract, getStakingTokenContract } from "@/lib/contracts";
+import { useQueryClient } from "@tanstack/react-query";
 import { motion } from "framer-motion";
 import { toast } from "sonner";
 import { Loader2, ArrowRight } from "lucide-react";
 
-export default function StakePanel({ poolId, account }: { poolId: number, account: string | null }) {
+export default function StakePanel({ poolId, account, onStaked }: { poolId: number, account: string | null, onStaked?: () => void }) {
+  const queryClient = useQueryClient();
   const [amount, setAmount] = useState("");
   const [isStaking, setIsStaking] = useState(false);
 
@@ -46,6 +48,9 @@ export default function StakePanel({ poolId, account }: { poolId: number, accoun
 
       toast.success(`Successfully staked ${amount} STK!`, { id: toastId });
       setAmount("");
+      queryClient.invalidateQueries({ queryKey: ["pools"] });
+      queryClient.invalidateQueries({ queryKey: ["tvl"] });
+      onStaked?.();
     } catch (error: any) {
       console.error(error);
       toast.error(error?.reason || error?.message || "Staking failed. Please try again.", { id: toastId });

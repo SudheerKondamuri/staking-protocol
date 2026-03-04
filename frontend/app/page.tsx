@@ -10,9 +10,14 @@ import { motion } from "framer-motion";
 export default function Home() {
   const [account, setAccount] = useState<string | null>(null);
   const [selectedPoolId, setSelectedPoolId] = useState<number>(0);
+  const [refreshKey, setRefreshKey] = useState(0);
 
   const handlePoolSelect = useCallback((poolId: number) => {
     setSelectedPoolId(poolId);
+  }, []);
+
+  const handleStaked = useCallback(() => {
+    setRefreshKey((k) => k + 1);
   }, []);
 
   return (
@@ -79,7 +84,7 @@ export default function Home() {
             transition={{ delay: 0.3 }}
             className="lg:col-span-5 sticky top-8"
           >
-            <StakePanel poolId={selectedPoolId} account={account} />
+            <StakePanel poolId={selectedPoolId} account={account} onStaked={handleStaked} />
           </motion.div>
         </div>
 
@@ -97,7 +102,7 @@ export default function Home() {
               </svg>
               My Active Positions
             </h3>
-            <UserPositions account={account} />
+            <UserPositions account={account} refreshKey={refreshKey} />
           </motion.div>
         )}
       </div>
