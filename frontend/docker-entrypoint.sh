@@ -33,4 +33,4 @@ echo "Clearing Next.js cache to avoid stale builds..."
 rm -rf /app/.next || true
 
 echo "Starting Next.js Dev Server..."
-exec npm run build
+exec npm run dev -- --hostname 0.0.0.0 --port 3000
