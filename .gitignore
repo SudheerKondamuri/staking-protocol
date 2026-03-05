@@ -22,5 +22,4 @@
 # Typechain types
 /typechain-types
 deployments/
-deploy/
 .env
